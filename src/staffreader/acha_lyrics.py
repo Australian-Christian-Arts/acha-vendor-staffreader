@@ -1,4 +1,9 @@
-"""AChA: attach lyric syllables to notes by their printed x position.
+"""AChA: attach lyric syllables to notes by their printed position (opt in: STAFFREADER_ACHA_LYRICS=hybrid).
+
+Measured 2026-11-10 on the Score Engine benchmark, clean page 1 of the Hallelujah fixture: the
+reader's own in-order `lyrics.attach` puts 85% of syllables on the right note, positional alone 75%,
+the hybrid below 81%. So in-order stays the default and this module is opt in; it is kept because it
+is the only path that can survive a staff whose note marks the reader missed.
 
 staffreader's `lyrics.attach` zips a verse's syllables onto the staff's 'ly'-marked notes in
 order, so one missed or extra note mark shifts every later syllable in the verse. Printed lyrics
@@ -111,7 +116,7 @@ def attach_by_position(bars, level: np.ndarray, staff, rows: list[tuple[int, int
         items_in: list[tuple[tuple, str, str]] = []
         for (box, t, j) in zip(boxes, texts, joins):
             t = t.strip()
-            if t and not any(c.isalnum() for c in t):
+            if not t or not any(c.isalnum() for c in t):
                 # a hyphen or extender the finder boxed on its own: it joins the word before
                 if items_in and '-' in t:
                     pb, pt, pj = items_in[-1]; items_in[-1] = (pb, pt, '-')
@@ -171,4 +176,48 @@ def attach_by_position(bars, level: np.ndarray, staff, rows: list[tuple[int, int
                     fixed = ('middle' if more else 'end') if going else ('begin' if more else 'single')
                     n['lyrics'][idx] = (vv, word, fixed, held)
                     going = more
+    return stats
+
+
+def attach_hybrid(bars, level: np.ndarray, staff, rows: list[tuple[int, int]], barlines=None) -> dict:
+    """lyrics.attach first (its in-order placement is right where the reader marked every sung note);
+    then bars where the printed syllable count under the bar differs from what landed there are
+    re-attached from the printed positions. Measured 2026-11-10 on the benchmark's clean page 1:
+    in-order 85% of syllables on the right note, positional alone 75%; the hybrid keeps the best of
+    each bar."""
+    import copy
+    verses = lyrics.read_rows(level, staff, rows)
+    lyrics.attach(bars, verses)
+    stats = {'rows': len(rows), 'bars_repositioned': 0, 'fallback': False}
+    ends = list(barlines or [])
+    if not ends:
+        stats['fallback'] = True
+        return stats
+    # positional reading into a scratch copy
+    scratch = copy.deepcopy(bars)
+    for bar in scratch:
+        for n in bar.notes:
+            n.pop('lyrics', None)
+    pos = attach_by_position(scratch, level, staff, rows, barlines=ends)
+    stats['positional'] = pos
+    for b, (bar, alt) in enumerate(zip(bars, scratch)):
+        have = sum(1 for n in bar.notes for l in n.get('lyrics', []) if l[0] == 1)
+        want = sum(1 for n in alt.notes for l in n.get('lyrics', []) if l[0] == 1)
+        if want and have != want:
+            for n, m in zip(bar.notes, alt.notes):
+                if 'lyrics' in m:
+                    n['lyrics'] = m['lyrics']
+                else:
+                    n.pop('lyrics', None)
+            stats['bars_repositioned'] += 1
+    # relabel syllabic in order across the staff
+    going = False
+    for bar in bars:
+        for n in bar.notes:
+            for idx, (vv, word, syllabic, held) in enumerate(n.get('lyrics', [])):
+                if vv != 1:
+                    continue
+                more = syllabic in ('begin', 'middle')
+                n['lyrics'][idx] = (vv, word, ('middle' if more else 'end') if going else ('begin' if more else 'single'), held)
+                going = more
     return stats

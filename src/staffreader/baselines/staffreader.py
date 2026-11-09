@@ -240,10 +240,10 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0,
             if 'ly' in full and lyrics.text_reader() is not None:
                 staff = lay.staves[st]
                 below = lay.staves[st + 1].top if st + 1 < len(lay.staves) else level.shape[0]
-                if os.environ.get('STAFFREADER_ACHA_LYRICS') == '1':
+                if os.environ.get('STAFFREADER_ACHA_LYRICS') == 'hybrid':
                     # AChA: place notes first, then attach syllables by printed x position.
                     from .. import acha_lyrics
-                    acha_lyrics.attach_by_position(bars, level, staff, lyrics.rows(level, staff, below),
+                    acha_lyrics.attach_hybrid(bars, level, staff, lyrics.rows(level, staff, below),
                                                    barlines=system.barlines)
                 else:
                     verses = lyrics.read_rows(level, staff, lyrics.rows(level, staff, below))
