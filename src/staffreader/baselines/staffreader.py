@@ -190,7 +190,11 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0,
     given, names each system's staves top to bottom, in place of the labels
     the text reader would read."""
     gray = layout_suite.gray_page(image, page)
-    lay = layout.read(gray)
+    if os.environ.get('STAFFREADER_ACHA_GEOMETRY') == '1':
+        from .. import acha_layout
+        lay = acha_layout.read(gray, str(image) if page is None else None)
+    else:
+        lay = layout.read(gray)
     level = layout.level(gray, lay.angle, lay.bend)
     if not lay.systems:
         raise RuntimeError('no staves found on the page')
@@ -236,8 +240,14 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0,
             if 'ly' in full and lyrics.text_reader() is not None:
                 staff = lay.staves[st]
                 below = lay.staves[st + 1].top if st + 1 < len(lay.staves) else level.shape[0]
-                verses = lyrics.read_rows(level, staff, lyrics.rows(level, staff, below))
-                lyrics.attach(bars, verses)
+                if os.environ.get('STAFFREADER_ACHA_LYRICS') == '1':
+                    # AChA: place notes first, then attach syllables by printed x position.
+                    from .. import acha_lyrics
+                    acha_lyrics.attach_by_position(bars, level, staff, lyrics.rows(level, staff, below),
+                                                   barlines=system.barlines)
+                else:
+                    verses = lyrics.read_rows(level, staff, lyrics.rows(level, staff, below))
+                    lyrics.attach(bars, verses)
             read.append(bars)
         if WORD_FINDER is not None:
             _words(level, lay, system, staves, read)
